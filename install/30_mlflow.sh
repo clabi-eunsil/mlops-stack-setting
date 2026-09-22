@@ -598,7 +598,6 @@ yellow "==[8/10] Helm 설치 =="
 helm upgrade --install mlflow "${CHART_DIR}" \
   --namespace "${NS}" \
   --wait --timeout 15m
-kubectl wait --for=condition=Complete job/mlflow-bucket-init -n "$NS" --timeout=180s
 green "MLflow 설치 완료 (mlflow, datasets 버킷 포함)"
 
 yellow "==[9/10] Kubeflow Gateway 연동 =="
