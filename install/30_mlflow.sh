@@ -519,6 +519,9 @@ metadata:
 spec:
   backoffLimit: 3
   template:
+    metadata:
+      annotations:
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: {{ .Values.mlflow.serviceAccount }}
       restartPolicy: Never
