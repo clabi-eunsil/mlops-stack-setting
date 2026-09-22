@@ -30,6 +30,8 @@ setup_logging "20_kubeflow"
 INSTALL_KSERVE="${INSTALL_KSERVE:-1}"
 INSTALL_TRAINING_OPERATOR_V1="${INSTALL_TRAINING_OPERATOR_V1:-1}"
 KF_DIR="${KF_DIR:-/root/kubeflow-community-distribution}"
+# Katib 등 일부 tests/*.sh가 이 변수를 직접 참조하므로 export 필요 (기본 사용자 네임스페이스 이름)
+export KF_PROFILE="${KF_PROFILE:-kubeflow-user-example-com}"
 
 echo "========================================"
 echo " Start: $(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -118,6 +120,10 @@ apply_kustomize common/istio/kubeflow-istio-resources/base
 echo "-- Multi-tenancy (Profiles + KFAM) --"
 ./tests/multi_tenancy_install.sh
 
+echo "-- 기본 사용자 Namespace --"
+# Katib 등 뒤에 오는 단계가 이 네임스페이스 존재를 전제하므로 Profile 컨트롤러 설치 직후로 옮김
+./tests/kubeflow_profile_install.sh
+
 echo "-- Dex --"
 ./tests/dex_install.sh
 
@@ -167,9 +173,6 @@ fi
 
 echo "-- Trainer (v2) --"
 ./tests/trainer_install.sh
-
-echo "-- 기본 사용자 Namespace --"
-KF_PROFILE=kubeflow-user-example-com ./tests/kubeflow_profile_install.sh
 
 yellow "==[6/6] 최종 확인 =="
 kubectl get pods -A | grep -Ev "Running|Completed" || green "모든 Pod가 Running/Completed 상태"
