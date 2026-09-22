@@ -497,11 +497,11 @@ spec:
     matchLabels: { app: seaweedfs }
   policyTypes: ["Ingress"]
   ingress:
+    # mlflow-server뿐 아니라 mlflow-bucket-init 같은 일회성 Job도 접근해야 하므로
+    # 특정 pod 라벨이 아니라 mlflow 네임스페이스 전체를 허용 (네임스페이스 자체가 격리 경계)
     - from:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} }
-          podSelector:
-            matchLabels: { app: mlflow-server }
       ports:
         - { protocol: TCP, port: 9000 }
 EOF
