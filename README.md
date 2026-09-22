@@ -66,6 +66,9 @@ vi bastion/cluster.env   # SSH_USER, CP_IPS, WORKER_IPS, GPU_IPS, VIP, POD_CIDR,
 bash bastion/run.sh
 ```
 
+실행하면 진행 전에 설정을 보여주고 확인을 받습니다:
+
+![bastion/run.sh 설정 확인 화면](docs/bastion-run-example.png)
 
 `cluster.env`에 IP만 입력하면 다음 순서로 전체 설치가 진행됩니다:
 
