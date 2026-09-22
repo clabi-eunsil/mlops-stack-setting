@@ -83,8 +83,19 @@ case "$MODE" in
     [[ -n "$CALICO_VERSION" ]] || die "Calico ${CALICO_MINOR}.x 릴리스를 찾지 못했습니다. CALICO_VERSION을 직접 지정하세요."
     echo "설치할 Calico 버전: ${CALICO_VERSION}"
 
-    kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
-    kubectl apply  -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
+    # server-side apply: idempotent(재실행 안전)하면서 tigera-operator.yaml에 포함된 대용량 CRD도
+    # client-side apply의 annotation 크기 제한에 안 걸림
+    kubectl apply --server-side --force-conflicts \
+      -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+
+    # CRD가 API에 등록되기까지 잠깐 시간이 걸려 첫 apply는 실패할 수 있음 (공식 문서에도 나오는 정상 케이스) -> 재시도
+    tries=0
+    until kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"; do
+      tries=$((tries + 1))
+      [[ $tries -ge 10 ]] && die "Calico custom-resources.yaml 적용 실패 (10회 재시도)"
+      yellow "CRD 등록 대기 중, 재시도 (${tries}/10)"
+      sleep 5
+    done
 
     yellow "==[4/4] join 명령 저장 =="
     kubeadm token create --print-join-command > /root/kubeadm-join-worker.sh
