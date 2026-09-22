@@ -50,17 +50,22 @@ setup_kubeconfig() {
     home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
     mkdir -p "${home}/.kube"
     cp -f /etc/kubernetes/admin.conf "${home}/.kube/config"
-    chown "${SUDO_USER}:${SUDO_USER}" "${home}/.kube/config"
+    # 그룹은 지정하지 않음: 배포판에 따라 유저명과 같은 이름의 그룹이 없을 수 있음
+    # (예: 일부 클라우드 이미지는 계정을 sysadm류 공용 그룹에 넣음) - 소유자만 바꾸면 충분함
+    chown "${SUDO_USER}" "${home}/.kube/config"
   fi
 }
 
 case "$MODE" in
   init)
-    INIT_ARGS=(--pod-network-cidr="${POD_CIDR}" --cri-socket=unix:///run/containerd/containerd.sock --upload-certs)
-    [[ -n "$VIP" ]] && INIT_ARGS+=(--control-plane-endpoint="${VIP}:6443")
-
     yellow "==[1/4] kubeadm init =="
-    kubeadm init "${INIT_ARGS[@]}" | tee /root/kubeadm-init.log
+    if [[ -f /etc/kubernetes/admin.conf ]]; then
+      yellow "이미 kubeadm init이 완료되어 있습니다 (건너뜀). 다시 초기화하려면 kubeadm reset 후 재실행하세요."
+    else
+      INIT_ARGS=(--pod-network-cidr="${POD_CIDR}" --cri-socket=unix:///run/containerd/containerd.sock --upload-certs)
+      [[ -n "$VIP" ]] && INIT_ARGS+=(--control-plane-endpoint="${VIP}:6443")
+      kubeadm init "${INIT_ARGS[@]}" | tee /root/kubeadm-init.log
+    fi
 
     yellow "==[2/4] kubeconfig 설정 =="
     setup_kubeconfig

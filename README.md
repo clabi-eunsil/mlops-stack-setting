@@ -66,6 +66,7 @@ vi bastion/cluster.env   # SSH_USER, CP_IPS, WORKER_IPS, GPU_IPS, VIP, POD_CIDR,
 bash bastion/run.sh
 ```
 
+
 `cluster.env`에 IP만 입력하면 다음 순서로 전체 설치가 진행됩니다:
 
 1. 전체 노드: SSH 접근 부트스트랩 (비밀번호 인증 1회 → 키+NOPASSWD sudo로 전환)
@@ -99,5 +100,5 @@ bash bastion/uninstall.sh all            # 위 전부를 역순으로
 
 ## 한계
 
-- Kubeflow는 공식 uninstall 절차가 없어 `uninstall/20_kubeflow.sh`는 네임스페이스/CRD를 통째로 지우는 방식으로 동작합니다. 완전히 깨끗한 상태가 필요하면 `uninstall/00_k8s_reset.sh`로 클러스터 자체를 재설치하는 편이 확실하며, 재부팅 후 `audit/bare_ubuntu_check.sh`로 잔여물을 확인할 수 있습니다.
+- Kubeflow는 공식 uninstall 절차가 없어 `uninstall/20_kubeflow.sh`는 네임스페이스/CRD를 통째로 지우는 방식으로 동작합니다. 완전히 깨끗한 상태가 필요하면 `uninstall/00_k8s_reset.sh`로 클러스터 자체를 재설치하는 편이 확실합니다.
 - 현재 모든 스크립트는 인터넷이 연결된 환경을 전제로 합니다 (apt/pip/GitHub/Docker Hub 등 공개 저장소 직접 접근). 폐쇄망/사내 레지스트리 연동은 아직 지원하지 않습니다.
