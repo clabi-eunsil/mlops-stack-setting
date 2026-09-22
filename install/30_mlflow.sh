@@ -519,9 +519,6 @@ metadata:
 spec:
   backoffLimit: 3
   template:
-    metadata:
-      annotations:
-        sidecar.istio.io/inject: "false"
     spec:
       serviceAccountName: {{ .Values.mlflow.serviceAccount }}
       restartPolicy: Never
