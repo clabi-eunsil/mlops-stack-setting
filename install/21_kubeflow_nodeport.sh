@@ -39,7 +39,7 @@ echo "========================================"
 echo " Start: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "========================================"
 
-yellow "==[1/5] istio-ingressgateway를 NodePort로 변경 =="
+yellow "==[1/6] istio-ingressgateway를 NodePort로 변경 =="
 kubectl get svc istio-ingressgateway -n istio-system -o yaml > /root/istio-ingressgateway-before-nodeport.yaml
 kubectl patch svc istio-ingressgateway -n istio-system --type=merge -p "$(cat <<EOF
 {
@@ -55,7 +55,7 @@ EOF
 )"
 green "istio-ingressgateway NodePort 설정 완료 (백업: /root/istio-ingressgateway-before-nodeport.yaml)"
 
-yellow "==[2/5] 웹앱 secure-cookie 비활성화 (HTTP 접속이므로 필요) =="
+yellow "==[2/6] 웹앱 secure-cookie 비활성화 (HTTP 접속이므로 필요) =="
 for DEPLOY in jupyter-web-app-deployment tensorboards-web-app-deployment volumes-web-app-deployment; do
   if kubectl get deployment "$DEPLOY" -n kubeflow >/dev/null 2>&1; then
     kubectl set env "deployment/${DEPLOY}" -n kubeflow APP_SECURE_COOKIES=false
@@ -64,7 +64,7 @@ for DEPLOY in jupyter-web-app-deployment tensorboards-web-app-deployment volumes
 done
 green "웹앱 secure-cookie 비활성화 완료"
 
-yellow "==[3/5] oauth2-proxy secure-cookie 비활성화 =="
+yellow "==[3/6] oauth2-proxy secure-cookie 비활성화 =="
 kubectl get deployment oauth2-proxy -n oauth2-proxy -o json \
   | python3 -c "
 import json, sys
@@ -78,7 +78,7 @@ print(json.dumps(d))
 kubectl rollout status deployment/oauth2-proxy -n oauth2-proxy --timeout=180s
 green "oauth2-proxy secure-cookie 비활성화 완료"
 
-yellow "==[4/5] NetworkPolicy 예외 추가 (외부 NodePort 트래픽 허용) =="
+yellow "==[4/6] NetworkPolicy 예외 추가 (외부 NodePort 트래픽 허용) =="
 # Kubeflow 기본 매니페스트는 kubectl port-forward 접근만 가정하고 istio-ingressgateway에
 # "같은 네임스페이스 또는 knative-serving에서 온 트래픽만 허용"하는 NetworkPolicy를 깔아둠.
 # 외부에서 NodePort로 들어온 트래픽은 kube-proxy가 source IP를 노드 자신의 IP로
@@ -103,7 +103,7 @@ spec:
 EOF
 green "NetworkPolicy 예외 추가 완료"
 
-yellow "==[5/5] SeaweedFS S3 API NodePort 노출 =="
+yellow "==[5/6] SeaweedFS S3 API NodePort 노출 =="
 # 기존 ClusterIP 서비스(seaweedfs)는 그대로 두고, S3 API 포트만 별도 NodePort 서비스로 추가 노출
 # (기존 서비스를 NodePort로 바꾸면 포트가 7개라 전부 nodePort를 지정해야 해서 번거롭고,
 #  클러스터 내부에서 seaweedfs.kubeflow.svc.cluster.local로 쓰는 다른 서비스에 영향 없게 하기 위함)
@@ -143,6 +143,18 @@ spec:
         - { protocol: TCP, port: 8333 }
 EOF
 green "SeaweedFS S3 API NodePort 노출 완료"
+
+yellow "==[6/6] MLflow 호스트 헤더 검증 예외 =="
+# MLflow 서버는 자체적으로 Host 헤더를 검사해서 localhost/사설 IP(10.*, 192.168.*, 172.16-31.*)가
+# 아니면 "DNS rebinding attack" 의심으로 차단함. 공인 IP로 접속하면 기본값에 안 걸려서 막히므로,
+# NodePort로 외부 공개하는 이상 이 검사도 같이 풀어줘야 함 (기본 로그인 계정과 같은 트레이드오프).
+if kubectl get deployment mlflow-server -n mlflow >/dev/null 2>&1; then
+  kubectl set env deployment/mlflow-server -n mlflow "MLFLOW_SERVER_ALLOWED_HOSTS=*"
+  kubectl rollout status deployment/mlflow-server -n mlflow --timeout=180s
+  green "MLflow 호스트 헤더 검증 예외 완료"
+else
+  yellow "mlflow-server 없음 - 건너뜀 (MLflow 미설치)"
+fi
 
 NODE_IP="$(hostname -I | awk '{print $1}')"
 echo
