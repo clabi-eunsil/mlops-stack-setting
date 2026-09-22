@@ -99,7 +99,9 @@ case "$MODE" in
 
     yellow "==[4/4] join 명령 저장 =="
     kubeadm token create --print-join-command > /root/kubeadm-join-worker.sh
-    CERT_KEY="$(grep -oP '(?<=--certificate-key )[a-f0-9]+' /root/kubeadm-init.log | head -1)"
+    # kubeadm 버전에 따라 "--control-plane --certificate-key <값>"을 한 줄에 안 보여주고
+    # "[upload-certs] Using certificate key:" 다음 줄에 키 값만 단독으로 출력하는 경우가 있음
+    CERT_KEY="$(grep -A1 -F '[upload-certs] Using certificate key:' /root/kubeadm-init.log | tail -1 || true)"
     [[ -n "$CERT_KEY" ]] || die "kubeadm init 출력에서 certificate-key를 찾지 못했습니다. /root/kubeadm-init.log 확인 필요."
     echo "$(cat /root/kubeadm-join-worker.sh) --control-plane --certificate-key ${CERT_KEY}" > /root/kubeadm-join-cp.sh
     chmod 600 /root/kubeadm-join-worker.sh /root/kubeadm-join-cp.sh
