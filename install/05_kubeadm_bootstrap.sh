@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+# kubeadm init/join + Calico CNI(첫 CP에서만) + CP/Worker 겸용 노드의 taint 제거
+#
+# 사용법:
+#   sudo bash 05_kubeadm_bootstrap.sh init [--vip=<VIP>] [--pod-cidr=<CIDR>] [--schedulable]
+#     - --vip를 생략하면 단일 CP(HA 없음) 구성
+#     - --pod-cidr를 생략하면 192.168.0.0/16 (Calico 기본값) 사용
+#     - 성공하면 /root/kubeadm-join-worker.sh, /root/kubeadm-join-cp.sh 에 join 명령 저장
+#       (bastion에서 이 파일 내용을 그대로 join-cp/join-worker의 인자로 넘기면 됨)
+#
+#   sudo bash 05_kubeadm_bootstrap.sh join-cp "<kubeadm-join-cp.sh 내용>" [--schedulable]
+#   sudo bash 05_kubeadm_bootstrap.sh join-worker "<kubeadm-join-worker.sh 내용>"
+#
+#   --schedulable: 이 노드를 CP이면서 Worker로도 쓰고 싶을 때 (control-plane taint 제거)
+#                  join-worker에는 의미 없음 (원래 taint가 없음)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../common/lib.sh"
+source "${SCRIPT_DIR}/../common/versions.env"
+
+require_root
+setup_logging "05_kubeadm_bootstrap"
+
+MODE="${1:-}"
+[[ -n "$MODE" ]] || die "사용법: $0 init [--vip=IP] [--pod-cidr=CIDR] [--schedulable] | join-cp \"<join cmd>\" [--schedulable] | join-worker \"<join cmd>\""
+shift
+
+SCHEDULABLE=0
+VIP=""
+POD_CIDR=""
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --schedulable) SCHEDULABLE=1 ;;
+    --vip=*)       VIP="${a#--vip=}" ;;
+    --pod-cidr=*)  POD_CIDR="${a#--pod-cidr=}" ;;
+    *)             ARGS+=("$a") ;;
+  esac
+done
+POD_CIDR="${POD_CIDR:-192.168.0.0/16}"
+
+setup_kubeconfig() {
+  mkdir -p "$HOME/.kube"
+  cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    local home
+    home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+    mkdir -p "${home}/.kube"
+    cp -f /etc/kubernetes/admin.conf "${home}/.kube/config"
+    chown "${SUDO_USER}:${SUDO_USER}" "${home}/.kube/config"
+  fi
+}
+
+case "$MODE" in
+  init)
+    INIT_ARGS=(--pod-network-cidr="${POD_CIDR}" --cri-socket=unix:///run/containerd/containerd.sock --upload-certs)
+    [[ -n "$VIP" ]] && INIT_ARGS+=(--control-plane-endpoint="${VIP}:6443")
+
+    yellow "==[1/4] kubeadm init =="
+    kubeadm init "${INIT_ARGS[@]}" | tee /root/kubeadm-init.log
+
+    yellow "==[2/4] kubeconfig 설정 =="
+    setup_kubeconfig
+
+    yellow "==[3/4] Calico CNI 설치 =="
+    # versions.env엔 minor(3.32.x)까지만 두고, 정확한 patch는 GitHub 릴리스에서 자동 조회
+    CALICO_MINOR="${CNI_CALICO_VERSION%.x}"
+    CALICO_VERSION="${CALICO_VERSION:-}"
+    if [[ -z "$CALICO_VERSION" ]]; then
+      CALICO_VERSION="$(curl -fsSL https://api.github.com/repos/projectcalico/calico/releases \
+        | grep -oE '"tag_name": *"v'"${CALICO_MINOR}"'\.[0-9]+"' \
+        | grep -oE 'v[0-9.]+' \
+        | sort -V | tail -1)"
+    fi
+    [[ -n "$CALICO_VERSION" ]] || die "Calico ${CALICO_MINOR}.x 릴리스를 찾지 못했습니다. CALICO_VERSION을 직접 지정하세요."
+    echo "설치할 Calico 버전: ${CALICO_VERSION}"
+
+    kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+    kubectl apply  -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
+
+    yellow "==[4/4] join 명령 저장 =="
+    kubeadm token create --print-join-command > /root/kubeadm-join-worker.sh
+    CERT_KEY="$(grep -oP '(?<=--certificate-key )[a-f0-9]+' /root/kubeadm-init.log | head -1)"
+    [[ -n "$CERT_KEY" ]] || die "kubeadm init 출력에서 certificate-key를 찾지 못했습니다. /root/kubeadm-init.log 확인 필요."
+    echo "$(cat /root/kubeadm-join-worker.sh) --control-plane --certificate-key ${CERT_KEY}" > /root/kubeadm-join-cp.sh
+    chmod 600 /root/kubeadm-join-worker.sh /root/kubeadm-join-cp.sh
+    green "저장됨: /root/kubeadm-join-worker.sh, /root/kubeadm-join-cp.sh"
+    ;;
+
+  join-cp|join-worker)
+    JOIN_CMD="${ARGS[*]:-}"
+    [[ -n "$JOIN_CMD" ]] || die "join 명령 문자열이 필요합니다 (CP1의 /root/kubeadm-join-*.sh 내용을 그대로 전달)"
+
+    yellow "==[1/2] ${MODE} =="
+    eval "$JOIN_CMD"
+
+    if [[ "$MODE" == "join-cp" ]]; then
+      yellow "==[2/2] kubeconfig 설정 =="
+      setup_kubeconfig
+    fi
+    ;;
+
+  *)
+    die "알 수 없는 MODE: ${MODE} (init|join-cp|join-worker 중 하나)"
+    ;;
+esac
+
+if [[ "$SCHEDULABLE" -eq 1 && "$MODE" != "join-worker" ]]; then
+  yellow "==[추가] Control-plane taint 제거 (이 노드를 Worker로도 사용) =="
+  kubectl taint nodes "$(hostname)" node-role.kubernetes.io/control-plane:NoSchedule- 2>/dev/null \
+    && green "taint 제거 완료" \
+    || yellow "taint 제거 실패 또는 이미 없음 (node 이름이 hostname과 다르면 수동 확인 필요)"
+fi
+
+kubectl get nodes -o wide 2>/dev/null || true
+green "DONE: kubeadm bootstrap (${MODE})"
