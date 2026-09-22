@@ -499,11 +499,15 @@ spec:
   ingress:
     # mlflow-server뿐 아니라 mlflow-bucket-init 같은 일회성 Job도 접근해야 하므로
     # 특정 pod 라벨이 아니라 mlflow 네임스페이스 전체를 허용 (네임스페이스 자체가 격리 경계)
+    #
+    # 포트는 Service 포트(9000)가 아니라 실제 Pod가 듣는 targetPort(8333)를 적어야 함.
+    # NetworkPolicy의 ports는 Pod 기준으로 매칭되므로 Service 포트 번호를 적으면
+    # 아무 트래픽도 매칭되지 않아 계속 막힌 것처럼 동작함.
     - from:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} }
       ports:
-        - { protocol: TCP, port: 9000 }
+        - { protocol: TCP, port: 8333 }
 EOF
 
 cat > "${CHART_DIR}/templates/bucket-init-job.yaml" <<'EOF'
