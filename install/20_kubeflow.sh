@@ -36,7 +36,20 @@ echo " Start: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo " Repo ref: ${KUBEFLOW_DISTRIBUTION_REPO}@${KUBEFLOW_DISTRIBUTION_REF}"
 echo "========================================"
 
-yellow "==[1/5] inotify 커널 설정 =="
+yellow "==[1/6] Local Path Provisioner 설치 (기본 StorageClass) =="
+# Kubeflow Pipelines의 mysql/seaweedfs 등은 PVC를 요청하므로 기본 StorageClass가 반드시 있어야 함
+# (없으면 PVC가 Pending에 머물고 그 PVC를 쓰는 Pod도 영원히 Pending)
+if ! kubectl get storageclass local-path >/dev/null 2>&1; then
+  LPP_VERSION="$(curl -fsSL https://api.github.com/repos/rancher/local-path-provisioner/releases/latest \
+    | grep -oE '"tag_name": *"[^"]+"' | cut -d'"' -f4)"
+  [[ -n "$LPP_VERSION" ]] || die "local-path-provisioner 최신 릴리스를 찾지 못했습니다."
+  kubectl apply -f "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LPP_VERSION}/deploy/local-path-storage.yaml"
+  kubectl wait --for=condition=Available deployment/local-path-provisioner -n local-path-storage --timeout=120s
+fi
+kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+green "기본 StorageClass 준비 완료 (local-path)"
+
+yellow "==[2/6] inotify 커널 설정 =="
 # Kubeflow 공식 매니페스트 권장값 (Pod가 많아지면 기본값으로는 부족)
 cat > /etc/sysctl.d/99-kubeflow.conf <<'EOF'
 fs.inotify.max_user_instances=2280
@@ -45,7 +58,7 @@ EOF
 sysctl --system | grep -E "max_user_instances|max_user_watches" || true
 green "inotify 설정 완료"
 
-yellow "==[2/5] kustomize ${KUSTOMIZE_VERSION} 설치 =="
+yellow "==[3/6] kustomize ${KUSTOMIZE_VERSION} 설치 =="
 if ! command -v kustomize >/dev/null 2>&1 || [[ "$(kustomize version 2>/dev/null)" != *"${KUSTOMIZE_VERSION}"* ]]; then
   TMP_DIR="$(mktemp -d)"
   ASSET="kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
@@ -58,7 +71,7 @@ fi
 kustomize version
 green "kustomize 준비 완료"
 
-yellow "==[3/5] kubeflow/community-distribution clone (${KUBEFLOW_DISTRIBUTION_REF}) =="
+yellow "==[4/6] kubeflow/community-distribution clone (${KUBEFLOW_DISTRIBUTION_REF}) =="
 if [[ ! -d "${KF_DIR}/.git" ]]; then
   git clone --branch "${KUBEFLOW_DISTRIBUTION_REF}" --depth 1 \
     "https://github.com/${KUBEFLOW_DISTRIBUTION_REPO}.git" "${KF_DIR}"
@@ -84,7 +97,7 @@ apply_kustomize() {
   done
 }
 
-yellow "==[4/5] 컴포넌트 설치 =="
+yellow "==[5/6] 컴포넌트 설치 =="
 
 echo "-- Kubeflow Namespace --"
 apply_kustomize common/kubeflow-namespace/base
@@ -158,7 +171,7 @@ echo "-- Trainer (v2) --"
 echo "-- 기본 사용자 Namespace --"
 KF_PROFILE=kubeflow-user-example-com ./tests/kubeflow_profile_install.sh
 
-yellow "==[5/5] 최종 확인 =="
+yellow "==[6/6] 최종 확인 =="
 kubectl get pods -A | grep -Ev "Running|Completed" || green "모든 Pod가 Running/Completed 상태"
 
 echo
