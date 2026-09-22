@@ -52,6 +52,7 @@ fi
 INSTALL_GPU_OPERATOR="${INSTALL_GPU_OPERATOR:-0}"
 INSTALL_KUBEFLOW="${INSTALL_KUBEFLOW:-0}"
 INSTALL_MLFLOW="${INSTALL_MLFLOW:-0}"
+EXPOSE_NODEPORT="${EXPOSE_NODEPORT:-0}"
 if [[ "$INSTALL_MLFLOW" == "1" && "$INSTALL_KUBEFLOW" != "1" ]]; then
   die "${CLUSTER_ENV}: INSTALL_MLFLOW=1이면 INSTALL_KUBEFLOW=1도 필요합니다 (MLflow가 Kubeflow의 SeaweedFS/대시보드를 재사용함)."
 fi
@@ -81,6 +82,7 @@ echo "VIP       : ${VIP:-(단일 CP, HA 없음)}"
 echo "전체 노드 : ${ALL_NODES[*]}"
 echo "GPU Operator 설치: ${INSTALL_GPU_OPERATOR}  /  Kubeflow 설치: ${INSTALL_KUBEFLOW}  /  MLflow 설치: ${INSTALL_MLFLOW}"
 [[ "$INSTALL_GPU_OPERATOR" == "1" ]] && echo "GPU_IPS   : ${GPU_IPS[*]}"
+echo "NodePort 노출: ${EXPOSE_NODEPORT}"
 echo
 read -r -p "위 설정으로 진행할까요? (yes 입력): " ACK
 [[ "${ACK:-}" == "yes" ]] || die "사용자 취소."
@@ -164,14 +166,23 @@ else
   yellow "INSTALL_KUBEFLOW=0 -> Kubeflow 건너뜀"
 fi
 
+if [[ "$INSTALL_KUBEFLOW" == "1" && "$EXPOSE_NODEPORT" == "1" ]]; then
+  yellow "==== Phase 11: Kubeflow/MLflow NodePort 노출 (CP1) ===="
+  NODEPORT_ARGS=()
+  [[ -n "${KUBEFLOW_NODEPORT:-}" ]] && NODEPORT_ARGS+=("--kubeflow-nodeport=${KUBEFLOW_NODEPORT}")
+  [[ -n "${KUBEFLOW_STATUS_NODEPORT:-}" ]] && NODEPORT_ARGS+=("--kubeflow-status-nodeport=${KUBEFLOW_STATUS_NODEPORT}")
+  [[ -n "${SEAWEEDFS_S3_NODEPORT:-}" ]] && NODEPORT_ARGS+=("--seaweedfs-s3-nodeport=${SEAWEEDFS_S3_NODEPORT}")
+  remote_run "$SSH_USER" "$CP1" install/21_kubeflow_nodeport.sh "${NODEPORT_ARGS[@]}"
+fi
+
 if [[ "$INSTALL_MLFLOW" == "1" ]]; then
-  yellow "==== Phase 11: MLflow (CP1) ===="
+  yellow "==== Phase 12: MLflow (CP1) ===="
   remote_run "$SSH_USER" "$CP1" install/30_mlflow.sh
 else
   yellow "INSTALL_MLFLOW=0 -> MLflow 건너뜀"
 fi
 
-yellow "==== Phase 12: 부트스트랩 흔적 정리 ===="
+yellow "==== Phase 13: 부트스트랩 흔적 정리 ===="
 for ip in "${ALL_NODES[@]}"; do
   cleanup_node "$SSH_USER" "$ip"
 done
