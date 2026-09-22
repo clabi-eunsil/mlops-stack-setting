@@ -23,6 +23,7 @@
 
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/mlops_bootstrap_ed25519}"
 REMOTE_DIR="${REMOTE_DIR:-~/mlops-bootstrap}"
+SSH_PORT="${SSH_PORT:-22}"
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=8)
 
 ensure_local_key() {
@@ -34,12 +35,12 @@ ensure_local_key() {
 
 ssh_key_works() {
   local user="$1" ip="$2"
-  ssh -i "$SSH_KEY" -o BatchMode=yes "${SSH_OPTS[@]}" "${user}@${ip}" "true" >/dev/null 2>&1
+  ssh -i "$SSH_KEY" -p "$SSH_PORT" -o BatchMode=yes "${SSH_OPTS[@]}" "${user}@${ip}" "true" >/dev/null 2>&1
 }
 
 sudo_works() {
   local user="$1" ip="$2"
-  ssh -i "$SSH_KEY" -o BatchMode=yes "${SSH_OPTS[@]}" "${user}@${ip}" "sudo -n true" >/dev/null 2>&1
+  ssh -i "$SSH_KEY" -p "$SSH_PORT" -o BatchMode=yes "${SSH_OPTS[@]}" "${user}@${ip}" "sudo -n true" >/dev/null 2>&1
 }
 
 # 최초 1회: 비밀번호 인증으로 키를 배포하고, NOPASSWD sudo를 심어둠
@@ -51,7 +52,7 @@ bootstrap_node() {
     green "[$ip] SSH 키 접속 OK"
   else
     yellow "[$ip] SSH 키가 아직 없습니다. 비밀번호를 입력해 키를 배포합니다."
-    ssh-copy-id -i "${SSH_KEY}.pub" "${SSH_OPTS[@]}" "${user}@${ip}" \
+    ssh-copy-id -i "${SSH_KEY}.pub" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" \
       || die "[$ip] ssh-copy-id 실패. 계정/비밀번호/네트워크를 확인하세요."
     ssh_key_works "$user" "$ip" || die "[$ip] 키 배포 후에도 접속 실패."
     green "[$ip] SSH 키 배포 완료"
@@ -62,7 +63,7 @@ bootstrap_node() {
   else
     yellow "[$ip] sudo 비밀번호가 필요합니다. 1회만 입력하면 이후 자동화됩니다."
     # -t: pty 할당 -> sudo가 비밀번호를 대화형으로 물어볼 수 있게 함
-    ssh -t -i "$SSH_KEY" "${SSH_OPTS[@]}" "${user}@${ip}" "
+    ssh -t -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" "
       sudo -v || exit 1
       echo '${user} ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-bootstrap-nopasswd >/dev/null
       sudo chmod 440 /etc/sudoers.d/90-bootstrap-nopasswd
@@ -74,8 +75,9 @@ bootstrap_node() {
 
 remote_copy() {
   local user="$1" ip="$2" repo_root="$3"
-  ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" "${user}@${ip}" "mkdir -p ${REMOTE_DIR}"
-  scp -i "$SSH_KEY" -q -r "${repo_root}/common" "${repo_root}/install" "${repo_root}/uninstall" \
+  ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" "mkdir -p ${REMOTE_DIR}"
+  # scp는 포트 옵션이 -p가 아니라 -P (소문자 -p는 "타임스탬프 보존" 옵션이라 충돌함)
+  scp -i "$SSH_KEY" -P "$SSH_PORT" -q -r "${repo_root}/common" "${repo_root}/install" "${repo_root}/uninstall" \
     "${user}@${ip}:${REMOTE_DIR}/"
 }
 
@@ -91,14 +93,14 @@ remote_run() {
   for a in "$@"; do
     quoted+=" $(printf '%q' "$a")"
   done
-  ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" "${user}@${ip}" \
+  ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" \
     "sudo bash ${REMOTE_DIR}/${script}${quoted}"
 }
 
 # CP1에서 kubeadm-join-*.sh 내용을 읽어와 다른 노드에 그대로 전달하기 위함
 fetch_remote_file() {
   local user="$1" ip="$2" path="$3"
-  ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" "${user}@${ip}" "sudo cat ${path}"
+  ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" "sudo cat ${path}"
 }
 
 # CP1을 통해 전체 노드가 Ready 상태가 될 때까지 대기 (GPU Operator/Kubeflow 설치 전 게이트)
@@ -106,7 +108,7 @@ wait_for_nodes_ready() {
   local user="$1" ip="$2" expected="$3" timeout="${4:-300}"
   local waited=0 ready
   while true; do
-    ready="$(ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" "${user}@${ip}" \
+    ready="$(ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" \
       "sudo kubectl get nodes --no-headers 2>/dev/null | awk '\$2==\"Ready\"' | wc -l" 2>/dev/null || echo 0)"
     [[ "$ready" -ge "$expected" ]] && return 0
     waited=$((waited + 10))
@@ -125,7 +127,7 @@ cleanup_node() {
   pubkey="$(cat "${SSH_KEY}.pub")"
 
   yellow "[$ip] 부트스트랩 흔적 정리 (NOPASSWD sudo + bastion 임시 키 제거)"
-  ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" "${user}@${ip}" "
+  ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" "
     sudo rm -f /etc/sudoers.d/90-bootstrap-nopasswd
     if [[ -f ~/.ssh/authorized_keys ]]; then
       grep -vF '${pubkey}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp || true

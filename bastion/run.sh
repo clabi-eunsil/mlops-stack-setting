@@ -38,6 +38,7 @@ CLUSTER_ENV="${CLUSTER_ENV:-${SCRIPT_DIR}/cluster.env}"
 source "$CLUSTER_ENV"
 
 [[ -n "${SSH_USER:-}" ]] || die "${CLUSTER_ENV}에 SSH_USER를 채우세요."
+export SSH_PORT="${SSH_PORT:-22}"
 [[ -n "${CP_IPS:-}" ]]   || die "${CLUSTER_ENV}에 CP_IPS를 채우세요."
 read -r -a CP_IPS <<<"${CP_IPS}"
 read -r -a WORKER_IPS <<<"${WORKER_IPS:-}"
@@ -76,6 +77,7 @@ fi
 echo
 yellow "==== 설정 확인 ===="
 echo "SSH_USER  : ${SSH_USER}"
+echo "SSH_PORT  : ${SSH_PORT}"
 echo "CP_IPS    : ${CP_IPS[*]}"
 echo "WORKER_IPS: ${WORKER_IPS[*]:-(없음)}"
 echo "VIP       : ${VIP:-(단일 CP, HA 없음)}"
@@ -144,7 +146,7 @@ fi
 
 yellow "==== Phase 7: 전체 노드 Ready 확인 ===="
 wait_for_nodes_ready "$SSH_USER" "$CP1" "${#ALL_NODES[@]}" 300 \
-  || die "노드가 5분 안에 전부 Ready 상태가 되지 않았습니다. 'ssh ${SSH_USER}@${CP1} kubectl get nodes'로 확인 후 재실행하세요."
+  || die "노드가 5분 안에 전부 Ready 상태가 되지 않았습니다. 'ssh -p ${SSH_PORT} ${SSH_USER}@${CP1} kubectl get nodes'로 확인 후 재실행하세요."
 green "전체 ${#ALL_NODES[@]}개 노드 Ready 확인됨"
 
 if [[ "$INSTALL_GPU_OPERATOR" == "1" ]]; then
@@ -191,6 +193,6 @@ green "bastion 로컬의 부트스트랩 키도 삭제했습니다 (모든 노�
 
 yellow "==== 클러스터 상태 확인 ===="
 echo "주의: 위에서 SSH 키를 지웠으므로 아래 확인은 CP1에 남아있는 기존 계정 접근으로 재확인하세요."
-echo "예: ssh ${SSH_USER}@${CP1} kubectl get nodes -o wide"
+echo "예: ssh -p ${SSH_PORT} ${SSH_USER}@${CP1} kubectl get nodes -o wide"
 
 green "DONE: 클러스터 부트스트랩 완료."

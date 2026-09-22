@@ -39,7 +39,7 @@ echo "========================================"
 echo " Start: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "========================================"
 
-yellow "==[1/4] istio-ingressgateway를 NodePort로 변경 =="
+yellow "==[1/5] istio-ingressgateway를 NodePort로 변경 =="
 kubectl get svc istio-ingressgateway -n istio-system -o yaml > /root/istio-ingressgateway-before-nodeport.yaml
 kubectl patch svc istio-ingressgateway -n istio-system --type=merge -p "$(cat <<EOF
 {
@@ -55,7 +55,7 @@ EOF
 )"
 green "istio-ingressgateway NodePort 설정 완료 (백업: /root/istio-ingressgateway-before-nodeport.yaml)"
 
-yellow "==[2/4] 웹앱 secure-cookie 비활성화 (HTTP 접속이므로 필요) =="
+yellow "==[2/5] 웹앱 secure-cookie 비활성화 (HTTP 접속이므로 필요) =="
 for DEPLOY in jupyter-web-app-deployment tensorboards-web-app-deployment volumes-web-app-deployment; do
   if kubectl get deployment "$DEPLOY" -n kubeflow >/dev/null 2>&1; then
     kubectl set env "deployment/${DEPLOY}" -n kubeflow APP_SECURE_COOKIES=false
@@ -64,7 +64,7 @@ for DEPLOY in jupyter-web-app-deployment tensorboards-web-app-deployment volumes
 done
 green "웹앱 secure-cookie 비활성화 완료"
 
-yellow "==[3/4] oauth2-proxy secure-cookie 비활성화 =="
+yellow "==[3/5] oauth2-proxy secure-cookie 비활성화 =="
 kubectl get deployment oauth2-proxy -n oauth2-proxy -o json \
   | python3 -c "
 import json, sys
@@ -78,7 +78,32 @@ print(json.dumps(d))
 kubectl rollout status deployment/oauth2-proxy -n oauth2-proxy --timeout=180s
 green "oauth2-proxy secure-cookie 비활성화 완료"
 
-yellow "==[4/4] SeaweedFS S3 API NodePort 노출 =="
+yellow "==[4/5] NetworkPolicy 예외 추가 (외부 NodePort 트래픽 허용) =="
+# Kubeflow 기본 매니페스트는 kubectl port-forward 접근만 가정하고 istio-ingressgateway에
+# "같은 네임스페이스 또는 knative-serving에서 온 트래픽만 허용"하는 NetworkPolicy를 깔아둠.
+# 외부에서 NodePort로 들어온 트래픽은 kube-proxy가 source IP를 노드 자신의 IP로
+# masquerade하기 때문에 이 조건에 안 걸려서 기본적으로 차단됨 (istio-ingressgateway 파드
+# 자체는 멀쩡히 응답 가능한데 Calico가 FORWARD 단계에서 조용히 버리는 상태).
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nodeport-external
+  namespace: istio-system
+spec:
+  podSelector:
+    matchLabels: { app: istio-ingressgateway }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 15021 }
+EOF
+green "NetworkPolicy 예외 추가 완료"
+
+yellow "==[5/5] SeaweedFS S3 API NodePort 노출 =="
 # 기존 ClusterIP 서비스(seaweedfs)는 그대로 두고, S3 API 포트만 별도 NodePort 서비스로 추가 노출
 # (기존 서비스를 NodePort로 바꾸면 포트가 7개라 전부 nodePort를 지정해야 해서 번거롭고,
 #  클러스터 내부에서 seaweedfs.kubeflow.svc.cluster.local로 쓰는 다른 서비스에 영향 없게 하기 위함)
@@ -97,6 +122,25 @@ spec:
       port: 9000
       targetPort: 8333
       nodePort: ${SEAWEEDFS_S3_NODEPORT}
+EOF
+# istio-ingressgateway와 동일한 이유로, SeaweedFS도 기본 NetworkPolicy가 같은 네임스페이스
+# 트래픽만 허용하므로 외부 NodePort 접근을 위한 예외가 필요함.
+# 포트는 Service 포트(9000)가 아니라 실제 Pod가 듣는 targetPort(8333) 기준.
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nodeport-external
+  namespace: kubeflow
+spec:
+  podSelector:
+    matchLabels: { app: seaweedfs }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: 8333 }
 EOF
 green "SeaweedFS S3 API NodePort 노출 완료"
 
