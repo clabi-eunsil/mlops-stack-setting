@@ -9,12 +9,23 @@ MinIO 내장 Browser로 드래그앤드롭 업로드를 할 수 없다(`20_kubef
 
 ## 1. `mc` 설치
 
+MinIO가 2025년에 오픈소스 Server/Client/KES를 아카이브 처리하면서 `dl.min.io`
+배포는 완전히 내려갔다(그 URL은 이제 410 Gone). GitHub 릴리스는 아카이브 전
+마지막 버전이 그대로 남아있으니 거기서 받는다. 또한 바이너리명을 `mcli`로 둔다
+— `mc`는 Midnight Commander(터미널 파일탐색기)와 이름이 겹쳐 PATH 우선순위에
+따라 엉뚱한 프로그램이 실행될 수 있다.
+
 ```bash
-curl https://dl.min.io/client/mc/release/linux-amd64/mc -o mc
-chmod +x mc
-sudo mv mc /usr/local/bin/mc
-mc --version
+curl -fL https://github.com/minio/mc/releases/download/RELEASE.2025-08-13T08-35-41Z/mcli_20250813083541.0.0_amd64.deb -o mcli.deb
+sudo dpkg -i mcli.deb
+mcli --version
 ```
+
+(최신 릴리스 버전이 바뀌면 `curl -s https://api.github.com/repos/minio/mc/releases/latest | grep amd64.deb`로
+정확한 파일명을 다시 확인할 것 — `releases/latest/download/`처럼 파일명을 추측해서
+쓰면 실제 에셋명과 달라 404가 날 수 있다.)
+
+아래 예시의 `mc`는 모두 `mcli`로 바꿔서 실행한다.
 
 ## 2. 접근키 확인
 

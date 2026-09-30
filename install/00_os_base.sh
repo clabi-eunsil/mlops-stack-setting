@@ -3,7 +3,7 @@
 # ubuntu 설치 직후 가장 먼저 실행
 # 목적:
 # - 운영/디버깅에 필요한 기본 패키지 설치
-# - chrony로 시간 동기화 (k8s control plane 권장)
+# - chrony로 시간 동기화
 # - SSH keepalive 설정으로 세션 끊김 완화
 # - 자동 업데이트 비활성화 (재현성 우선)
 #

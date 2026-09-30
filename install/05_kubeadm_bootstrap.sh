@@ -89,8 +89,12 @@ case "$MODE" in
       -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
 
     # CRD가 API에 등록되기까지 잠깐 시간이 걸려 첫 apply는 실패할 수 있음 (공식 문서에도 나오는 정상 케이스) -> 재시도
+    # custom-resources.yaml의 IPPool CIDR은 192.168.0.0/16으로 고정되어 있어, --pod-cidr로
+    # 다른 대역을 쓰면 kubelet이 노드에 할당한 PodCIDR과 어긋나 CNI 초기화가 끝나지 않음 -> 치환 필요
     tries=0
-    until kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"; do
+    until curl -fsSL "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml" \
+      | sed "s#cidr: 192.168.0.0/16#cidr: ${POD_CIDR}#" \
+      | kubectl apply -f -; do
       tries=$((tries + 1))
       [[ $tries -ge 10 ]] && die "Calico custom-resources.yaml 적용 실패 (10회 재시도)"
       yellow "CRD 등록 대기 중, 재시도 (${tries}/10)"

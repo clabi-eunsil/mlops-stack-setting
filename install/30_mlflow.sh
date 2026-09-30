@@ -235,6 +235,7 @@ data:
         "mlflow", "server",
         "--host", "0.0.0.0",
         "--port", "5000",
+        "--static-prefix", "/mlflow",
         "--app-name", "basic-auth",
         "--backend-store-uri", uri,
         "--artifacts-destination", f"s3://{os.environ['MLFLOW_ARTIFACT_BUCKET']}/",
@@ -419,15 +420,15 @@ spec:
             - { name: auth-config, mountPath: /etc/mlflow-auth, readOnly: true }
             - { name: tmp, mountPath: /tmp }
           startupProbe:
-            httpGet: { path: /health, port: http }
+            httpGet: { path: /mlflow/health, port: http }
             periodSeconds: 10
             failureThreshold: 90
           readinessProbe:
-            httpGet: { path: /health, port: http }
+            httpGet: { path: /mlflow/health, port: http }
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
-            httpGet: { path: /health, port: http }
+            httpGet: { path: /mlflow/health, port: http }
             periodSeconds: 20
             failureThreshold: 6
           securityContext:
