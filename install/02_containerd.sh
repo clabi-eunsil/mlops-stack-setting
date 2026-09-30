@@ -4,6 +4,10 @@
 # - Ubuntu 기본 repo의 containerd는 1.x라 Docker 공식 repo에서 containerd.io 2.x를 설치
 # - 목표 버전: versions.env의 CONTAINERD_VERSION(2.2.x) 계열 중 repo에 있는 최신 패치를 자동 선택
 # - SystemdCgroup=true 로 설정 (kubelet과 cgroup driver 일치 필수)
+#
+# 옵션 (환경변수):
+#   CONTAINERD_ROOT=/data/containerd   이미지/컨테이너 데이터 경로 (기본: /var/lib/containerd)
+#   CONTAINERD_STATE=/run/containerd   런타임 상태(소켓 등) 경로 (기본: /run/containerd)
 
 set -euo pipefail
 
@@ -15,6 +19,8 @@ require_root
 setup_logging "02_containerd"
 
 CONTAINERD_MINOR="${CONTAINERD_VERSION%.x}"  # "2.2.x" -> "2.2"
+CONTAINERD_ROOT="${CONTAINERD_ROOT:-/var/lib/containerd}"
+CONTAINERD_STATE="${CONTAINERD_STATE:-/run/containerd}"
 
 echo "========================================"
 echo " Start: $(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -55,6 +61,12 @@ if [[ -f /etc/containerd/config.toml ]]; then
 fi
 containerd config default > /etc/containerd/config.toml
 green "생성: /etc/containerd/config.toml"
+if [[ "$CONTAINERD_ROOT" != "/var/lib/containerd" || "$CONTAINERD_STATE" != "/run/containerd" ]]; then
+  mkdir -p "$CONTAINERD_ROOT" "$CONTAINERD_STATE"
+  sed -i "s#^root = .*#root = \"${CONTAINERD_ROOT}\"#" /etc/containerd/config.toml
+  sed -i "s#^state = .*#state = \"${CONTAINERD_STATE}\"#" /etc/containerd/config.toml
+  yellow "root=${CONTAINERD_ROOT}, state=${CONTAINERD_STATE} 로 경로 변경"
+fi
 
 yellow "==[5/6] SystemdCgroup=true 설정 =="
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
@@ -66,6 +78,7 @@ yellow "==[6/6] Final check =="
 systemctl is-active containerd && echo "containerd: OK" || red "containerd: FAIL"
 containerd --version
 grep -n "SystemdCgroup" /etc/containerd/config.toml
+grep -nE "^root|^state" /etc/containerd/config.toml
 apt-mark showhold | grep containerd || true
 
 echo "Log: ${LOG_DIR}/02_containerd.log"

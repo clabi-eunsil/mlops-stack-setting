@@ -25,6 +25,8 @@ SSH_KEY="${SSH_KEY:-$HOME/.ssh/mlops_bootstrap_ed25519}"
 REMOTE_DIR="${REMOTE_DIR:-~/mlops-bootstrap}"
 SSH_PORT="${SSH_PORT:-22}"
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=8)
+# remote_run 호출 직전에 REMOTE_ENV=("KEY=val" ...)로 채우면 그 환경변수를 붙여서 실행함 (사용 후 자동 초기화)
+REMOTE_ENV=()
 
 ensure_local_key() {
   if [[ ! -f "$SSH_KEY" ]]; then
@@ -88,13 +90,18 @@ remote_copy() {
 remote_run() {
   local user="$1" ip="$2" script="$3"
   shift 3
-  local quoted=""
+  local quoted="" env_prefix=""
   local a
   for a in "$@"; do
     quoted+=" $(printf '%q' "$a")"
   done
+  for a in "${REMOTE_ENV[@]}"; do
+    env_prefix+="$(printf '%q' "$a") "
+  done
+  [[ -n "$env_prefix" ]] && env_prefix="env ${env_prefix}"
   ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_OPTS[@]}" "${user}@${ip}" \
-    "sudo bash ${REMOTE_DIR}/${script}${quoted}"
+    "sudo ${env_prefix}bash ${REMOTE_DIR}/${script}${quoted}"
+  REMOTE_ENV=()
 }
 
 # CP1에서 kubeadm-join-*.sh 내용을 읽어와 다른 노드에 그대로 전달하기 위함

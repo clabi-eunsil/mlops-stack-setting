@@ -15,6 +15,7 @@
 # 옵션 (환경변수):
 #   INSTALL_KSERVE=0   Knative+KServe(모델 서빙)를 건너뜀 (기본: 1, 설치함)
 #   INSTALL_TRAINING_OPERATOR_V1=0   구버전 Training Operator(v1)를 건너뜀 (기본: 1)
+#   LOCAL_PATH_PROVISIONER_PATH=/data/k8s-local-path   PVC 데이터가 쌓이는 노드 로컬 경로 (기본: /opt/local-path-provisioner)
 
 set -euo pipefail
 
@@ -29,6 +30,7 @@ setup_logging "20_kubeflow"
 
 INSTALL_KSERVE="${INSTALL_KSERVE:-1}"
 INSTALL_TRAINING_OPERATOR_V1="${INSTALL_TRAINING_OPERATOR_V1:-1}"
+LOCAL_PATH_PROVISIONER_PATH="${LOCAL_PATH_PROVISIONER_PATH:-/opt/local-path-provisioner}"
 KF_DIR="${KF_DIR:-/root/kubeflow-community-distribution}"
 # Katib 등 일부 tests/*.sh가 이 변수를 직접 참조하므로 export 필요 (기본 사용자 네임스페이스 이름)
 export KF_PROFILE="${KF_PROFILE:-kubeflow-user-example-com}"
@@ -49,6 +51,16 @@ if ! kubectl get storageclass local-path >/dev/null 2>&1; then
   kubectl wait --for=condition=Available deployment/local-path-provisioner -n local-path-storage --timeout=120s
 fi
 kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+if [[ "$LOCAL_PATH_PROVISIONER_PATH" != "/opt/local-path-provisioner" ]]; then
+  # 노드 디렉터리는 provisioner가 PVC 생성 시 helper pod로 자동 mkdir 하므로 미리 만들 필요 없음
+  CONFIG_JSON="$(jq -n --arg path "$LOCAL_PATH_PROVISIONER_PATH" \
+    '{nodePathMap: [{node: "DEFAULT_PATH_FOR_NON_LISTED_NODES", paths: [$path]}]}')"
+  kubectl patch configmap local-path-config -n local-path-storage --type merge \
+    -p "$(jq -n --arg cfg "$CONFIG_JSON" '{data: {"config.json": $cfg}}')"
+  kubectl rollout restart deployment/local-path-provisioner -n local-path-storage
+  kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=60s
+  yellow "PVC 데이터 경로 변경: ${LOCAL_PATH_PROVISIONER_PATH}"
+fi
 green "기본 StorageClass 준비 완료 (local-path)"
 
 yellow "==[2/6] inotify 커널 설정 =="

@@ -54,6 +54,8 @@ INSTALL_GPU_OPERATOR="${INSTALL_GPU_OPERATOR:-0}"
 INSTALL_KUBEFLOW="${INSTALL_KUBEFLOW:-0}"
 INSTALL_MLFLOW="${INSTALL_MLFLOW:-0}"
 EXPOSE_NODEPORT="${EXPOSE_NODEPORT:-0}"
+CONTAINERD_ROOT="${CONTAINERD_ROOT:-}"
+LOCAL_PATH_PROVISIONER_PATH="${LOCAL_PATH_PROVISIONER_PATH:-}"
 if [[ "$INSTALL_MLFLOW" == "1" && "$INSTALL_KUBEFLOW" != "1" ]]; then
   die "${CLUSTER_ENV}: INSTALL_MLFLOW=1이면 INSTALL_KUBEFLOW=1도 필요합니다 (MLflow가 Kubeflow의 SeaweedFS/대시보드를 재사용함)."
 fi
@@ -85,6 +87,7 @@ echo "전체 노드 : ${ALL_NODES[*]}"
 echo "GPU Operator 설치: ${INSTALL_GPU_OPERATOR}  /  Kubeflow 설치: ${INSTALL_KUBEFLOW}  /  MLflow 설치: ${INSTALL_MLFLOW}"
 [[ "$INSTALL_GPU_OPERATOR" == "1" ]] && echo "GPU_IPS   : ${GPU_IPS[*]}"
 echo "NodePort 노출: ${EXPOSE_NODEPORT}"
+echo "containerd 경로: ${CONTAINERD_ROOT:-(기본값)}  /  PVC 경로: ${LOCAL_PATH_PROVISIONER_PATH:-(기본값)}"
 echo
 read -r -p "위 설정으로 진행할까요? (yes 입력): " ACK
 [[ "${ACK:-}" == "yes" ]] || die "사용자 취소."
@@ -98,6 +101,7 @@ for ip in "${ALL_NODES[@]}"; do
   remote_copy "$SSH_USER" "$ip" "$REPO_ROOT"
   remote_run "$SSH_USER" "$ip" install/00_os_base.sh
   remote_run "$SSH_USER" "$ip" install/01_k8s_prereq.sh
+  [[ -n "$CONTAINERD_ROOT" ]] && REMOTE_ENV+=("CONTAINERD_ROOT=${CONTAINERD_ROOT}")
   remote_run "$SSH_USER" "$ip" install/02_containerd.sh
   remote_run "$SSH_USER" "$ip" install/03_kubeadm_packages.sh
 done
@@ -163,6 +167,7 @@ fi
 
 if [[ "$INSTALL_KUBEFLOW" == "1" ]]; then
   yellow "==== Phase 10: Kubeflow (CP1) ===="
+  [[ -n "$LOCAL_PATH_PROVISIONER_PATH" ]] && REMOTE_ENV+=("LOCAL_PATH_PROVISIONER_PATH=${LOCAL_PATH_PROVISIONER_PATH}")
   remote_run "$SSH_USER" "$CP1" install/20_kubeflow.sh
 else
   yellow "INSTALL_KUBEFLOW=0 -> Kubeflow 건너뜀"
